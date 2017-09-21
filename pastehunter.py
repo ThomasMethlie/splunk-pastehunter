@@ -6,6 +6,7 @@ import hashlib
 import requests
 import datetime
 import configparser
+import re
 
 # Parse the config file in to a dict
 def parse_config():
@@ -89,6 +90,7 @@ for paste in paste_list_json:
     matches = rules.match(data=utf8)
 
     results = []
+    emails = []
 
     for match in matches:
         print(match)
@@ -99,7 +101,14 @@ for paste in paste_list_json:
                 if rule_match not in results:
                     results.append(rule_match)
 
-        # But a break in here for the base64. Will use it later.
+        elif match.rule == 'email_list':
+            email_list = re.findall(r'\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b', raw_paste_data, re.IGNORECASE)
+            for entry in email_list:
+                print entry
+                emails.append(entry)
+            results.append(match.rule)
+
+# But a break in here for the base64. Will use it later.
         elif match.rule.startswith('b64'):
             results.append(match.rule)
 
@@ -119,16 +128,22 @@ for paste in paste_list_json:
         payload.update({"host": "local"})
 
         event = {}
+        event.update({"paste_id": paste['key']})
         event.update({"MD5": md5})
         event.update({"SHA256": sha256})
-        event.update({"raw_paste": raw_paste_data})
-        event.update({"YaraRule": results})
+        event.update({"EMAIL": emails})
+        if conf['database']['save_raw_paste'] == 'YES':
+            event.update({"raw_paste": raw_paste_data})
+        if len(results) > 1:
+            event.update({"YaraRule": results})
+        else:
+            event.update({"YaraRule": results[0]})
 
         payload.update({"event": event})
 
-        requests.post('http://' + splunk_host +'/services/collector/event',
-                      headers={'Authorization': 'Splunk ' + splunk_token}, json=payload)
-
+        result = requests.post('http://' + splunk_host +'/services/collector/event',
+                               headers={'Authorization': 'Splunk ' + splunk_token}, json=payload)
+        print result.text
         store_count += 1
 
 print("Saved {0} Pastes".format(store_count))
